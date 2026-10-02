@@ -1,0 +1,107 @@
+import { defineEnglishItem, defineTranslations } from 'shared';
+
+const translations = defineTranslations({
+  items: {
+    item: defineEnglishItem('item', 'items'),
+    key: defineEnglishItem('key', 'keys'),
+  },
+  translations: {
+    common: {
+      configEditor: 'Config Editor',
+    },
+    formats: {
+      yaml: 'YAML',
+      json: 'JSON',
+      toml: 'TOML',
+      properties: 'Properties',
+      env: 'ENV',
+      ini: 'INI',
+    },
+    kinds: {
+      string: 'Text',
+      integer: 'Integer',
+      float: 'Decimal',
+      boolean: 'Boolean',
+      null: 'Null',
+      datetime: 'Date/time',
+      array: 'List',
+      object: 'Group',
+    },
+    browser: {
+      files: 'Files',
+      favorites: 'Favorites',
+      root: 'container',
+      noFavorites: 'Star a config file to pin it here.',
+      empty: 'No folders or supported config files here.',
+      addFavorite: 'Add to favorites',
+      removeFavorite: 'Remove from favorites',
+    },
+    tabs: {
+      emptyTitle: 'No file open',
+      emptyDescription: 'Pick a config file on the left to edit it.',
+      close: 'Close {name}',
+      unsaved: '{name} has unsaved changes',
+      closeTitle: 'Unsaved Changes',
+      closeContent: '{name} has unsaved changes. Close it and discard them?',
+    },
+    toolbar: {
+      save: 'Save',
+      revert: 'Revert',
+      review: 'Review changes',
+      rawMode: 'Raw text',
+      rawModeLocked: 'Save or revert your changes before switching editors.',
+      rawModeUnavailable: 'The file does not parse, so only the raw editor is available.',
+      openInFileEditor: 'Open in file editor',
+      invalidValues: 'Fix the highlighted values before saving.',
+    },
+    editor: {
+      filter: 'Find keys...',
+      noMatches: 'No keys match the filter.',
+      emptyObject: 'This group has no keys.',
+      emptyArray: 'This list has no items.',
+      addKey: 'Add key',
+      addItem: 'Add item',
+      keyName: 'Key name',
+      kind: 'Type',
+      keyRequired: 'Enter a key name.',
+      keyDuplicate: 'This key already exists here.',
+      remove: 'Remove',
+      moveUp: 'Move up',
+      moveDown: 'Move down',
+      setValue: 'Set value',
+      expand: 'Expand',
+      collapse: 'Collapse',
+      item: 'Item {index}',
+      invalidInteger: 'Enter a whole number, e.g. 25565 or -1.',
+      invalidFloat: 'Enter a number, e.g. 0.5, 1e-3 or inf.',
+      invalidDatetime: 'Enter a date/time, e.g. 1979-05-27T07:32:00Z.',
+      scalarRoot: 'The document is a single value.',
+    },
+    parseError: {
+      title: 'The file could not be parsed',
+      location: 'Line {line}, column {column}: {message}',
+      line: 'Line {line}: {message}',
+    },
+    review: {
+      title: 'Review changes: {name}',
+      noChanges: 'Saving would not change the file.',
+    },
+    conflict: {
+      title: 'File changed on disk',
+      content:
+        '{name} was changed since you opened it. Reload it to discard your edits, or overwrite the file with your version.',
+      reload: 'Reload',
+      overwrite: 'Overwrite',
+    },
+    toast: {
+      saved: '{name} saved.',
+      unchanged: '{name} is already up to date.',
+      reloaded: '{name} reloaded from disk.',
+    },
+  },
+});
+
+export const useExtTranslations = translations.useTranslations.bind(translations);
+export const getExtTranslations = translations.getTranslations.bind(translations);
+
+export default translations;
