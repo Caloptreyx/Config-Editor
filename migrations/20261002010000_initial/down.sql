@@ -1,0 +1,1 @@
+DROP TABLE IF EXISTS dev_caloptreyx_configeditor_favorites;
