@@ -466,6 +466,24 @@ mod tests {
     }
 
     #[test]
+    fn removed_keys_take_their_comment_block() {
+        let source = "# header\n\n# port\nport=1\n! motd\nmotd=x\n";
+        let mut document = parse(source).unwrap();
+        entries(&mut document).remove(0);
+        assert_eq!(apply(source, &document), "# header\n\n! motd\nmotd=x\n");
+
+        let mut document = parse(source).unwrap();
+        entries(&mut document).pop();
+        assert_eq!(apply(source, &document), "# header\n\n# port\nport=1\n");
+
+        // A continued value's `#` line belongs to the value, not to the next key.
+        let source = "a=x\\\n#tail\nb=1\n";
+        let mut document = parse(source).unwrap();
+        entries(&mut document).pop();
+        assert_eq!(apply(source, &document), "a=x\\\n#tail\n");
+    }
+
+    #[test]
     fn appending_terminates_the_last_line() {
         assert_eq!(apply("a=1", &with("a=1", "b", "2")), "a=1\nb=2\n");
         assert_eq!(apply("", &with("", "eula", "true")), "eula=true\n");

@@ -432,16 +432,20 @@ mod tests {
         entries(&mut document).insert(0, Entry::new("FIRST", infer("1"), None));
         assert_eq!(
             apply(APP, &document),
-            "# Database\n\
-            FIRST=1\n\
+            "FIRST=1\n\
             DB_PASS='s3cr#t'\n\
             GREETING = \"Hello\\n\\\"World\\\"\"\n\
             \n\
-            # Multi-line key\n\
             EMPTY=\n\
             PORT=8080\n\
             NEW_KEY=\"a b\"\n"
         );
+
+        // A `#` line inside a multi-line value is not the removed key's comment.
+        let source = "CERT=\"a\n# b\"\nX=1\n";
+        let mut document = parse(source).unwrap();
+        entries(&mut document).pop();
+        assert_eq!(apply(source, &document), "CERT=\"a\n# b\"\n");
     }
 
     #[test]

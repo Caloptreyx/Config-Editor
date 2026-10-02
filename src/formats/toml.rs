@@ -2,13 +2,16 @@
 //! touch. Edits are applied to the parsed `DocumentMut` and the file is rendered again; only
 //! line endings need restoring because `toml_edit` always writes `\n`.
 //!
-//! In a TOML table the plain keys are always written before its `[sub-tables]`, so objects list
-//! their plain entries first and their object / array-of-object entries after them (both groups
-//! in file order). [`arrange`] puts a submitted document into that order.
+//! Inside a table, TOML writes every `key = value` line (scalars, arrays, inline tables, dotted
+//! keys) before the `[sub-tables]` and `[[arrays of tables]]`, so objects list their key/value
+//! entries first and their header entries after them, both in file order. [`arrange`] puts a
+//! submitted document into the order the written file will have.
 use std::collections::HashSet;
 use std::fmt::Write as _;
 
-use toml_edit::{Array, ArrayOfTables, DocumentMut, InlineTable, Item, RawString, Table, Value};
+use toml_edit::{
+    Array, ArrayOfTables, DocumentMut, InlineTable, Item, KeyMut, RawString, Table, Value,
+};
 
 use super::{Entry, Node, ParseError, text};
 
@@ -34,58 +37,43 @@ pub fn patch(source: &str, _current: &Node, document: &Node) -> String {
     let Ok(mut parsed) = source.parse::<DocumentMut>() else {
         return source.to_owned();
     };
+    let first = first_written(parsed.as_table());
     let mut writer = Writer::new(source);
-    writer.merge_table(parsed.as_table_mut(), entries);
+    writer.merge_table(parsed.as_table_mut(), entries, true);
     if writer.failed {
         return source.to_owned();
     }
-    if writer.renumber {
-        renumber(parsed.as_table_mut(), &mut 0);
-    }
+    writer.place_detached(&mut parsed);
+    tidy(parsed.as_table_mut(), first);
 
     let (bom, body) = split_bom(source);
     format!("{bom}{}", restore_line_endings(body, &parsed.to_string()))
 }
 
+/// The whole document written from scratch; objects keep the form (inline or `[table]`) they
+/// have in `source`.
 pub fn emit(source: &str, document: &Node) -> String {
     let (bom, body) = split_bom(source);
+    let file = body.parse::<DocumentMut>().ok();
+    let entries = match document {
+        Node::Object { entries } => entries.as_slice(),
+        _ => &[],
+    };
     let mut writer = Writer::new(body);
-    let mut output = DocumentMut::new();
-    if let Node::Object { entries } = document {
-        for entry in entries {
-            let item = writer.new_item(&entry.value, true);
-            output.insert(&entry.key, item);
-        }
-    }
+    let output =
+        DocumentMut::from(writer.shaped_table(file.as_ref().map(DocumentMut::as_table), entries));
     format!(
         "{bom}{}",
         text::with_eol(&output.to_string(), text::eol(body))
     )
 }
 
-/// `document` with every object's entries in the order TOML lists them: plain entries first,
-/// then objects and arrays of objects, each group keeping its relative order.
-pub fn arrange(document: &Node) -> Node {
-    match document {
-        Node::Object { entries } => Node::Object {
-            entries: arranged(
-                entries
-                    .iter()
-                    .map(|entry| {
-                        Entry::new(
-                            entry.key.clone(),
-                            arrange(&entry.value),
-                            entry.comment.clone(),
-                        )
-                    })
-                    .collect(),
-            ),
-        },
-        Node::Array { items } => Node::Array {
-            items: items.iter().map(arrange).collect(),
-        },
-        node => node.clone(),
-    }
+/// `document` in the order [`parse`] lists the file [`patch`] writes for it: in every table the
+/// key/value entries first, then the header entries. Entries present in `source` keep their
+/// form; new objects and arrays of objects become headers under a `[table]`, inline elsewhere.
+pub fn arrange(source: &str, document: &Node) -> Node {
+    let file = source.parse::<DocumentMut>().ok();
+    arrange_table(file.as_ref().map(DocumentMut::as_table), document, true)
 }
 
 /// The literal stored for a user-entered float: TOML float literals are kept as written,
@@ -140,16 +128,20 @@ fn datetime_literal(text: &str) -> Option<Value> {
 }
 
 fn table_node(table: &Table) -> Node {
-    let entries = table
-        .iter()
-        .filter_map(|(key, item)| {
-            let value = item_node(item)?;
-            Some(Entry::new(key, value, item_comment(table, key, item)))
-        })
-        .collect();
-    Node::Object {
-        entries: arranged(entries),
+    let (mut lines, mut headers) = (Vec::new(), Vec::new());
+    for (key, item) in table.iter() {
+        let Some(value) = item_node(item) else {
+            continue;
+        };
+        let entry = Entry::new(key, value, item_comment(table, key, item));
+        if is_header(item) {
+            headers.push(entry);
+        } else {
+            lines.push(entry);
+        }
     }
+    lines.extend(headers);
+    Node::Object { entries: lines }
 }
 
 fn inline_node(table: &InlineTable) -> Node {
@@ -160,9 +152,7 @@ fn inline_node(table: &InlineTable) -> Node {
             Entry::new(key, value_node(value), comment(prefix))
         })
         .collect();
-    Node::Object {
-        entries: arranged(entries),
-    }
+    Node::Object { entries }
 }
 
 fn item_node(item: &Item) -> Option<Node> {
@@ -216,26 +206,101 @@ fn comment(prefix: Option<&RawString>) -> Option<String> {
     text::comment_above(prefix, text::line_start(prefix, prefix.len()), &["#"])
 }
 
-fn arranged(entries: Vec<Entry>) -> Vec<Entry> {
-    let (tables, mut plain): (Vec<Entry>, Vec<Entry>) = entries
-        .into_iter()
-        .partition(|entry| is_table_like(&entry.value));
-    plain.extend(tables);
-    plain
+fn raw(text: Option<&RawString>) -> &str {
+    text.and_then(RawString::as_str).unwrap_or("")
 }
 
-fn arranged_keys<'a>(keys: impl Iterator<Item = (&'a str, bool)>) -> Vec<&'a str> {
-    let (tables, mut plain): (Vec<_>, Vec<_>) = keys.partition(|(_, table_like)| *table_like);
-    plain.extend(tables);
-    plain.into_iter().map(|(key, _)| key).collect()
+/// The whole lines of a decor prefix before the comment block that belongs to its entry
+/// (the text that stays when the entry is removed).
+fn detached(prefix: &str) -> &str {
+    let mut end = prefix.rfind('\n').map_or(0, |at| at + 1);
+    while end > 0 {
+        let start = text::line_start(prefix, end - 1);
+        if !prefix[start..end].trim_start().starts_with('#') {
+            break;
+        }
+        end = start;
+    }
+    &prefix[..end]
 }
 
-fn expected_keys(entries: &[Entry]) -> Vec<&str> {
-    arranged_keys(
-        entries
-            .iter()
-            .map(|entry| (entry.key.as_str(), is_table_like(&entry.value))),
-    )
+/// `detached` text put in front of `prefix`, without doubling the blank line between them.
+fn join_prefix(detached: &str, prefix: &str) -> String {
+    let prefix = match prefix.find('\n') {
+        Some(at) if !detached.is_empty() && prefix[..at].trim().is_empty() => &prefix[at + 1..],
+        _ => prefix,
+    };
+    format!("{detached}{prefix}")
+}
+
+fn arrange_table(table: Option<&Table>, node: &Node, headers: bool) -> Node {
+    let Node::Object { entries } = node else {
+        return node.clone();
+    };
+    let (mut lines, mut tables) = (Vec::new(), Vec::new());
+    for entry in entries {
+        let existing = table.and_then(|table| table.get(&entry.key));
+        let header = header_form(existing, &entry.value, headers);
+        let value = match (existing, &entry.value) {
+            (Some(Item::Table(child)), Node::Object { .. }) if header || child.is_dotted() => {
+                arrange_table(Some(child), &entry.value, !child.is_dotted())
+            }
+            (_, Node::Object { .. }) if header => arrange_table(None, &entry.value, true),
+            (_, Node::Array { items }) if header => Node::Array {
+                items: partners(existing, items)
+                    .into_iter()
+                    .zip(items)
+                    .map(|(partner, item)| arrange_table(partner, item, true))
+                    .collect(),
+            },
+            (_, value) => value.clone(),
+        };
+        let entry = Entry::new(entry.key.clone(), value, entry.comment.clone());
+        if header {
+            tables.push(entry);
+        } else {
+            lines.push(entry);
+        }
+    }
+    lines.extend(tables);
+    Node::Object { entries: lines }
+}
+
+/// The table of the array of tables `existing` that each item of `items` is written into.
+fn partners<'a>(existing: Option<&'a Item>, items: &[Node]) -> Vec<Option<&'a Table>> {
+    let old: Vec<&Table> = existing
+        .and_then(Item::as_array_of_tables)
+        .map(|array| array.iter().collect())
+        .unwrap_or_default();
+    let old_nodes: Vec<Node> = old.iter().map(|table| table_node(table)).collect();
+    let mut partners = vec![None; items.len()];
+    for (from, to) in align(&old_nodes, items) {
+        if let (Some(from), Some(to)) = (from, to) {
+            partners[to] = Some(old[from]);
+        }
+    }
+    partners
+}
+
+/// Whether `node` is written under its own `[header]` in a table, given the item it replaces;
+/// `headers`: the table is a `[table]` (not a dotted key), so new objects become sub-tables.
+fn header_form(existing: Option<&Item>, node: &Node, headers: bool) -> bool {
+    match (existing, node) {
+        (Some(Item::Table(table)), Node::Object { .. }) => !table.is_dotted(),
+        (Some(Item::ArrayOfTables(_)), node) => is_table_like(node),
+        (Some(Item::Value(value)), node) => headers && becomes_header(value, node),
+        (_, node) => headers && is_table_like(node),
+    }
+}
+
+/// Whether a `key = value` turns into a sub-table when it changes kind: objects and arrays of
+/// objects do, unless the value already is an inline table / array.
+fn becomes_header(value: &Value, node: &Node) -> bool {
+    match node {
+        Node::Object { .. } => !value.is_inline_table(),
+        Node::Array { .. } => is_table_like(node) && !value.is_array(),
+        _ => false,
+    }
 }
 
 fn is_table_like(node: &Node) -> bool {
@@ -244,23 +309,6 @@ fn is_table_like(node: &Node) -> bool {
         Node::Array { items } => {
             !items.is_empty() && items.iter().all(|item| matches!(item, Node::Object { .. }))
         }
-        _ => false,
-    }
-}
-
-fn item_is_table_like(item: &Item) -> bool {
-    match item {
-        Item::None => false,
-        Item::Value(value) => value_is_table_like(value),
-        Item::Table(_) => true,
-        Item::ArrayOfTables(array) => !array.is_empty(),
-    }
-}
-
-fn value_is_table_like(value: &Value) -> bool {
-    match value {
-        Value::InlineTable(_) => true,
-        Value::Array(array) => !array.is_empty() && array.iter().all(Value::is_inline_table),
         _ => false,
     }
 }
@@ -274,12 +322,340 @@ fn is_header(item: &Item) -> bool {
     }
 }
 
-fn header_position(item: &Item) -> Option<isize> {
-    match item {
-        Item::Table(table) if !table.is_dotted() => table.position(),
-        Item::ArrayOfTables(array) => array.get(0).and_then(Table::position),
-        _ => None,
+/// The keys of a table in the order [`parse`] lists them.
+fn listed_keys(table: &Table) -> Vec<&str> {
+    let (headers, mut lines): (Vec<_>, Vec<_>) =
+        table.iter().partition(|(_, item)| is_header(item));
+    lines.extend(headers);
+    lines.into_iter().map(|(key, _)| key).collect()
+}
+
+/// A table as `toml_edit` writes it.
+struct Header {
+    /// Tables are written sorted by this key; a table without a position takes the position
+    /// of the table visited before it.
+    key: (bool, isize),
+    position: Option<isize>,
+    /// Implicit tables without keys get no header of their own.
+    shown: bool,
+}
+
+/// Every non-dotted table in visiting order (the root first).
+fn collect_headers(table: &Table, member: bool, last: &mut isize, out: &mut Vec<Header>) {
+    if !table.is_dotted() {
+        if let Some(position) = table.position() {
+            *last = position;
+        }
+        out.push(Header {
+            key: (!out.is_empty(), *last),
+            position: table.position(),
+            shown: member || !table.is_implicit() || !table.get_values().is_empty(),
+        });
     }
+    for (_, item) in table.iter() {
+        match item {
+            Item::Table(child) => collect_headers(child, false, last, out),
+            Item::ArrayOfTables(array) => {
+                for child in array.iter() {
+                    collect_headers(child, true, last, out);
+                }
+            }
+            Item::None | Item::Value(_) => {}
+        }
+    }
+}
+
+/// The written tables (visiting index and position) in the order they are written; with
+/// `renumbered` in visiting order.
+fn written_order(root: &Table, renumbered: bool) -> Vec<(usize, Option<isize>)> {
+    let mut headers = Vec::new();
+    collect_headers(root, false, &mut 0, &mut headers);
+    let mut order: Vec<usize> = (1..headers.len())
+        .filter(|&index| headers[index].shown)
+        .collect();
+    if !renumbered {
+        order.sort_by_key(|&index| headers[index].key);
+    }
+    order
+        .into_iter()
+        .map(|index| (index, headers[index].position))
+        .collect()
+}
+
+/// Whether parsing the written document lists the header entries of every table in item
+/// order. Parsing creates a table at its own header, or at the first header inside it when
+/// it has none.
+fn headers_in_order(root: &Table) -> bool {
+    let mut headers = Vec::new();
+    collect_headers(root, false, &mut 0, &mut headers);
+    let mut order: Vec<usize> = (0..headers.len()).collect();
+    order.sort_by_key(|&index| headers[index].key);
+    let mut rank = vec![0; headers.len()];
+    for (written, index) in order.into_iter().enumerate() {
+        rank[index] = written;
+    }
+    let shown: Vec<Option<usize>> = headers
+        .iter()
+        .zip(rank)
+        .map(|(header, rank)| header.shown.then_some(rank))
+        .collect();
+    let mut in_order = true;
+    created_at(root, &shown, &mut 0, &mut in_order);
+    in_order
+}
+
+/// When parsing creates `table` and when the first header inside it is written (as write
+/// ranks); clears `in_order` when a table's header entries would be created out of order.
+fn created_at(
+    table: &Table,
+    shown: &[Option<usize>],
+    next: &mut usize,
+    in_order: &mut bool,
+) -> (Option<usize>, Option<usize>) {
+    let own = if table.is_dotted() {
+        None
+    } else {
+        *next += 1;
+        shown[*next - 1]
+    };
+    let mut earliest = own;
+    let mut headers = Vec::new();
+    for (_, item) in table.iter() {
+        match item {
+            Item::Table(child) => {
+                let (at, first) = created_at(child, shown, next, in_order);
+                earliest = earlier(earliest, first);
+                if !child.is_dotted() {
+                    headers.extend(at);
+                }
+            }
+            Item::ArrayOfTables(array) => {
+                let mut members = Vec::new();
+                for child in array.iter() {
+                    let (at, first) = created_at(child, shown, next, in_order);
+                    earliest = earlier(earliest, first);
+                    members.extend(at);
+                }
+                *in_order &= members.is_sorted();
+                headers.extend(members.first().copied());
+            }
+            Item::None | Item::Value(_) => {}
+        }
+    }
+    *in_order &= headers.is_sorted();
+    let at = if table.is_dotted() {
+        None
+    } else {
+        own.or(earliest)
+    };
+    (at, earliest)
+}
+
+fn earlier(a: Option<usize>, b: Option<usize>) -> Option<usize> {
+    a.into_iter().chain(b).min()
+}
+
+/// The lowest position after `after` of a header table written in the file.
+fn next_position(table: &Table, after: isize) -> Option<isize> {
+    let own = table
+        .position()
+        .filter(|&position| !table.is_dotted() && position > after);
+    table
+        .iter()
+        .filter_map(|(_, item)| match item {
+            Item::Table(child) => next_position(child, after),
+            Item::ArrayOfTables(array) => array
+                .iter()
+                .filter_map(|child| next_position(child, after))
+                .min(),
+            Item::None | Item::Value(_) => None,
+        })
+        .chain(own)
+        .min()
+}
+
+fn table_at(table: &mut Table, position: isize) -> Option<&mut Table> {
+    if !table.is_dotted() && table.position() == Some(position) {
+        return Some(table);
+    }
+    for (_, item) in table.iter_mut() {
+        let found = match item {
+            Item::Table(child) => table_at(child, position),
+            Item::ArrayOfTables(array) => {
+                array.iter_mut().find_map(|child| table_at(child, position))
+            }
+            Item::None | Item::Value(_) => None,
+        };
+        if found.is_some() {
+            return found;
+        }
+    }
+    None
+}
+
+fn table_at_index<'a>(
+    table: &'a mut Table,
+    index: usize,
+    next: &mut usize,
+) -> Option<&'a mut Table> {
+    if !table.is_dotted() {
+        if *next == index {
+            return Some(table);
+        }
+        *next += 1;
+    }
+    for (_, item) in table.iter_mut() {
+        let found = match item {
+            Item::Table(child) => table_at_index(child, index, next),
+            Item::ArrayOfTables(array) => array
+                .iter_mut()
+                .find_map(|child| table_at_index(child, index, next)),
+            Item::None | Item::Value(_) => None,
+        };
+        if found.is_some() {
+            return found;
+        }
+    }
+    None
+}
+
+/// The key carrying the line prefix of the `key = value` entry `name` (the first key written
+/// for a dotted table).
+fn line_key<'a>(table: &'a mut Table, name: &str) -> Option<KeyMut<'a>> {
+    if table.get(name)?.is_value() {
+        return table.key_mut(name);
+    }
+    let Item::Table(child) = table.get_mut(name)? else {
+        return None;
+    };
+    if !child.is_dotted() {
+        return None;
+    }
+    let first = child.iter().next()?.0.to_owned();
+    line_key(child, &first)
+}
+
+/// Puts `text` in front of the `key = value` line(s) of the entry `name`; false for headers.
+fn prepend_to_line(table: &mut Table, name: &str, text: &str) -> bool {
+    let Some(mut key) = line_key(table, name) else {
+        return false;
+    };
+    let prefix = join_prefix(text, raw(key.leaf_decor().prefix()));
+    key.leaf_decor_mut().set_prefix(prefix);
+    true
+}
+
+/// What the file starts with: its first `key = value` line or its first `[header]`.
+#[derive(PartialEq)]
+enum First {
+    Line(String),
+    Table(isize),
+}
+
+fn first_line(root: &Table) -> Option<String> {
+    root.iter()
+        .find(|(_, item)| !is_header(item))
+        .map(|(key, _)| key.to_owned())
+}
+
+fn first_written(root: &Table) -> Option<First> {
+    match first_line(root) {
+        Some(name) => Some(First::Line(name)),
+        None => written_order(root, false)
+            .first()
+            .and_then(|&(_, position)| position)
+            .map(First::Table),
+    }
+}
+
+/// Layout after the merge: the file's leading text stays on top, a header after a new table
+/// is separated from it by a blank line, and tables written out of item order are renumbered.
+fn tidy(root: &mut Table, first: Option<First>) {
+    let renumbered = !headers_in_order(root);
+    let order = written_order(root, renumbered);
+    if let Some(first) = first {
+        keep_file_header(root, &first, &order);
+    }
+    for pair in order.windows(2) {
+        let [(_, None), (index, Some(_))] = pair else {
+            continue;
+        };
+        if let Some(table) = table_at_index(root, *index, &mut 0) {
+            let prefix = raw(table.decor().prefix());
+            if !starts_blank(prefix) {
+                let prefix = format!("\n{prefix}");
+                table.decor_mut().set_prefix(prefix);
+            }
+        }
+    }
+    if renumbered {
+        renumber(root, &mut 0);
+    }
+}
+
+/// Moves the text at the top of the file (the leading part of the first entry's prefix) to
+/// the entry written first now.
+fn keep_file_header(root: &mut Table, first: &First, order: &[(usize, Option<isize>)]) {
+    let new_line = first_line(root);
+    let unchanged = match (first, &new_line, order.first()) {
+        (First::Line(old), Some(new), _) => old == new,
+        (First::Table(old), None, Some((_, position))) => *position == Some(*old),
+        _ => false,
+    };
+    if unchanged {
+        return;
+    }
+
+    let head = match first {
+        First::Line(name) => {
+            let Some(mut key) = line_key(root, name) else {
+                return;
+            };
+            let prefix = raw(key.leaf_decor().prefix()).to_owned();
+            let head = detached(&prefix).to_owned();
+            key.leaf_decor_mut().set_prefix(&prefix[head.len()..]);
+            head
+        }
+        First::Table(position) => {
+            let Some(table) = table_at(root, *position) else {
+                return;
+            };
+            let prefix = raw(table.decor().prefix()).to_owned();
+            let head = detached(&prefix).to_owned();
+            let rest = &prefix[head.len()..];
+            let rest = if starts_blank(rest) {
+                rest.to_owned()
+            } else {
+                format!("\n{rest}")
+            };
+            table.decor_mut().set_prefix(rest);
+            head
+        }
+    };
+    if head.is_empty() {
+        return;
+    }
+
+    match new_line {
+        Some(name) => {
+            prepend_to_line(root, &name, &head);
+        }
+        None => {
+            if let Some(&(index, _)) = order.first()
+                && let Some(table) = table_at_index(root, index, &mut 0)
+            {
+                let prefix = join_prefix(&head, raw(table.decor().prefix()));
+                table.decor_mut().set_prefix(prefix);
+            }
+        }
+    }
+}
+
+/// Whether a prefix starts with a blank line.
+fn starts_blank(prefix: &str) -> bool {
+    prefix
+        .find('\n')
+        .is_some_and(|at| prefix[..at].trim().is_empty())
 }
 
 /// Numbers every header table in document order, so `toml_edit` writes them in item order.
@@ -470,8 +846,9 @@ struct Writer {
     crlf: bool,
     /// A value of the document cannot be stored in TOML (an integer beyond 64 bits).
     failed: bool,
-    /// Sub-tables changed order; table positions must follow the item order.
-    renumber: bool,
+    /// Text that stood before removed entries, with the position of the table after which
+    /// it is written again (in front of the next `[header]`).
+    detached: Vec<(isize, String)>,
 }
 
 impl Writer {
@@ -479,14 +856,13 @@ impl Writer {
         Self {
             crlf: text::eol(source) == "\r\n",
             failed: false,
-            renumber: false,
+            detached: Vec::new(),
         }
     }
 
-    fn merge_table(&mut self, table: &mut Table, entries: &[Entry]) {
+    fn merge_table(&mut self, table: &mut Table, entries: &[Entry], root: bool) {
         let headers = !table.is_dotted();
         let keep: HashSet<&str> = entries.iter().map(|entry| entry.key.as_str()).collect();
-        table.retain(|key, _| keep.contains(key));
         let indent = body_indent(table);
 
         for entry in entries {
@@ -497,10 +873,10 @@ impl Writer {
                     was_header != is_header(item)
                 }
                 None => {
-                    let item = self.new_item(&entry.value, headers);
-                    let plain = item.is_value();
+                    let header = header_form(None, &entry.value, headers);
+                    let item = self.shaped_item(None, &entry.value, header);
                     table.insert(&entry.key, item);
-                    if plain
+                    if !header
                         && let Some(indent) = &indent
                         && let Some(mut key) = table.key_mut(&entry.key)
                     {
@@ -515,35 +891,93 @@ impl Writer {
             }
         }
 
-        // Empty implicit / dotted tables are not written at all; keep the table in the file.
+        let anchor = if root {
+            Some(isize::MIN)
+        } else {
+            table.position()
+        };
+        self.remove_missing(table, &keep, anchor);
+        // An emptied implicit table is not written at all; keep its header.
         if table.is_empty() {
-            table.set_dotted(false);
             table.set_implicit(false);
         }
         self.order_table(table, entries);
     }
 
-    fn order_table(&mut self, table: &mut Table, entries: &[Entry]) {
-        let expected = expected_keys(entries);
-        if arranged_keys(
-            table
-                .iter()
-                .map(|(key, item)| (key, item_is_table_like(item))),
-        ) == expected
+    /// Removes the entries that are not kept. The text above a removed entry, up to its own
+    /// comment block, stays: in front of the next `key = value` line, or else in front of the
+    /// next `[header]` after `anchor`.
+    fn remove_missing(&mut self, table: &mut Table, keep: &HashSet<&str>, anchor: Option<isize>) {
+        let names: Vec<String> = table.iter().map(|(key, _)| key.to_owned()).collect();
+        let mut carry = String::new();
+        for name in names {
+            if keep.contains(name.as_str()) {
+                if !carry.is_empty() && prepend_to_line(table, &name, &carry) {
+                    carry.clear();
+                }
+                continue;
+            }
+            let Some((key, item)) = table.remove_entry(&name) else {
+                continue;
+            };
+            match &item {
+                Item::Value(_) => carry.push_str(detached(raw(key.leaf_decor().prefix()))),
+                Item::Table(child) if !child.is_dotted() => self.detach(child),
+                Item::ArrayOfTables(array) => {
+                    for child in array.iter() {
+                        self.detach(child);
+                    }
+                }
+                Item::None | Item::Table(_) => {}
+            }
+        }
+        if !carry.is_empty()
+            && let Some(anchor) = anchor
         {
+            self.detached.push((anchor, carry));
+        }
+    }
+
+    /// Keeps the text above a removed `[header]` for the next header.
+    fn detach(&mut self, table: &Table) {
+        let text = detached(raw(table.decor().prefix()));
+        if !text.is_empty()
+            && let Some(position) = table.position()
+        {
+            self.detached.push((position, text.to_owned()));
+        }
+    }
+
+    /// Writes the text of removed entries in front of the next `[header]` (or at the end),
+    /// keeping the order the texts had in the file.
+    fn place_detached(&mut self, document: &mut DocumentMut) {
+        let mut detached = std::mem::take(&mut self.detached);
+        detached.sort_by_key(|(after, _)| *after);
+        for (after, text) in detached.into_iter().rev() {
+            let next = next_position(document.as_table(), after);
+            match next.and_then(|position| table_at(document.as_table_mut(), position)) {
+                Some(table) => {
+                    let prefix = join_prefix(&text, raw(table.decor().prefix()));
+                    table.decor_mut().set_prefix(prefix);
+                }
+                None if text.trim().is_empty() => {}
+                None => {
+                    let trailing = format!("{text}{}", raw(Some(document.trailing())));
+                    document.set_trailing(trailing);
+                }
+            }
+        }
+    }
+
+    fn order_table(&mut self, table: &mut Table, entries: &[Entry]) {
+        let expected: Vec<&str> = entries.iter().map(|entry| entry.key.as_str()).collect();
+        if listed_keys(table) == expected {
             return;
         }
         for key in &expected {
             if let Some((key, item)) = table.remove_entry(key) {
                 table.insert_formatted(&key, item);
             }
-        }
-        let positions: Vec<isize> = table
-            .iter()
-            .filter_map(|(_, item)| header_position(item))
-            .collect();
-        if !positions.is_sorted() {
-            self.renumber = true;
         }
     }
 
@@ -552,15 +986,18 @@ impl Writer {
         if item_node(item).as_ref() == Some(node) {
             return;
         }
+        let header = header_form(Some(&*item), node, headers);
         match (item, node) {
-            (Item::Table(table), Node::Object { entries }) => self.merge_table(table, entries),
-            (Item::ArrayOfTables(array), Node::Array { items }) if is_table_like(node) => {
+            (Item::Table(table), Node::Object { entries })
+                if header || (table.is_dotted() && !entries.is_empty()) =>
+            {
+                self.merge_table(table, entries, false);
+            }
+            (Item::ArrayOfTables(array), Node::Array { items }) if header => {
                 self.merge_tables(array, items);
             }
-            (Item::Value(value), node) if !(headers && becomes_header(value, node)) => {
-                self.merge_value(value, node);
-            }
-            (item, node) => *item = self.new_item(node, headers),
+            (Item::Value(value), node) if !header => self.merge_value(value, node),
+            (item, node) => *item = self.shaped_item(None, node, header),
         }
     }
 
@@ -569,18 +1006,19 @@ impl Writer {
         let old_nodes: Vec<Node> = old.iter().map(table_node).collect();
         array.clear();
         for (from, to) in align(&old_nodes, items) {
-            let Some(Node::Object { entries }) = to.map(|to| &items[to]) else {
-                continue;
-            };
-            let table = match from {
-                Some(from) => {
+            match (from, to.map(|to| &items[to])) {
+                (Some(from), None) => self.detach(&old[from]),
+                (Some(from), Some(Node::Object { entries })) => {
                     let mut table = std::mem::take(&mut old[from]);
-                    self.merge_table(&mut table, entries);
-                    table
+                    self.merge_table(&mut table, entries, false);
+                    array.push(table);
                 }
-                None => self.new_table(entries),
-            };
-            array.push(table);
+                (None, Some(Node::Object { entries })) => {
+                    let table = self.shaped_table(None, entries);
+                    array.push(table);
+                }
+                _ => {}
+            }
         }
     }
 
@@ -628,12 +1066,11 @@ impl Writer {
             }
         }
 
-        let expected = expected_keys(entries);
-        if arranged_keys(
-            table
-                .iter()
-                .map(|(key, value)| (key, value_is_table_like(value))),
-        ) != expected
+        let expected: Vec<&str> = entries.iter().map(|entry| entry.key.as_str()).collect();
+        if !table
+            .iter()
+            .map(|(key, _)| key)
+            .eq(expected.iter().copied())
         {
             for key in &expected {
                 if let Some((key, value)) = table.remove_entry(key) {
@@ -728,14 +1165,19 @@ impl Writer {
         }
     }
 
-    fn new_item(&mut self, node: &Node, headers: bool) -> Item {
+    /// A new item in the form `header` decides; tables follow the shape of `existing` (the
+    /// item of the file at the same place) so their entries keep their forms too.
+    fn shaped_item(&mut self, existing: Option<&Item>, node: &Node, header: bool) -> Item {
         match node {
-            Node::Object { entries } if headers => Item::Table(self.new_table(entries)),
-            Node::Array { items } if headers && is_table_like(node) => Item::ArrayOfTables(
-                items
-                    .iter()
-                    .filter_map(|item| match item {
-                        Node::Object { entries } => Some(self.new_table(entries)),
+            Node::Object { entries } if header => {
+                Item::Table(self.shaped_table(existing.and_then(Item::as_table), entries))
+            }
+            Node::Array { items } if header => Item::ArrayOfTables(
+                partners(existing, items)
+                    .into_iter()
+                    .zip(items)
+                    .filter_map(|(partner, item)| match item {
+                        Node::Object { entries } => Some(self.shaped_table(partner, entries)),
                         _ => None,
                     })
                     .collect(),
@@ -744,10 +1186,12 @@ impl Writer {
         }
     }
 
-    fn new_table(&mut self, entries: &[Entry]) -> Table {
+    fn shaped_table(&mut self, file: Option<&Table>, entries: &[Entry]) -> Table {
         let mut table = Table::new();
         for entry in entries {
-            let item = self.new_item(&entry.value, true);
+            let existing = file.and_then(|file| file.get(&entry.key));
+            let header = header_form(existing, &entry.value, true);
+            let item = self.shaped_item(existing, &entry.value, header);
             table.insert(&entry.key, item);
         }
         // A table holding only sub-tables needs no header of its own.
@@ -813,16 +1257,6 @@ impl Writer {
     fn unstorable(&mut self) -> Value {
         self.failed = true;
         Value::from(false)
-    }
-}
-
-/// Whether a plain `key = value` in a `[table]` turns into a sub-table when it changes kind:
-/// objects and arrays of objects do, unless the value already is an inline table / array.
-fn becomes_header(value: &Value, node: &Node) -> bool {
-    match node {
-        Node::Object { .. } => !value.is_inline_table(),
-        Node::Array { .. } => is_table_like(node) && !value.is_array(),
-        _ => false,
     }
 }
 
@@ -953,7 +1387,11 @@ mod tests {
 
     fn apply(source: &str, document: &Node) -> String {
         let output = Format::Toml.apply(source, document).unwrap();
-        assert_eq!(parse(&output).unwrap(), arrange(document), "{output}");
+        assert_eq!(
+            parse(&output).unwrap(),
+            arrange(source, document),
+            "{output}"
+        );
         output
     }
 
@@ -1046,25 +1484,29 @@ mod tests {
     }
 
     #[test]
-    fn plain_keys_are_listed_before_tables() {
-        let source = "point = { x = 1 }\nname = \"a\"\n";
+    fn key_value_lines_are_listed_before_headers() {
+        let source = "point = { x = 1 }\nname = \"a\"\n\n[server]\nport = 1\n";
         let mut document = parse(source).unwrap();
-        assert_eq!(keys(&document), ["name", "point"]);
-        assert_eq!(arrange(&document), document);
+        assert_eq!(keys(&document), ["point", "name", "server"]);
+        assert_eq!(arrange(source, &document), document);
 
         set(&mut document, &[], "name", Node::string("b"));
+        set(&mut document, &["point"], "y", int("2"));
         assert_eq!(
             apply(source, &document),
-            "point = { x = 1 }\nname = \"b\"\n"
+            "point = { x = 1, y = 2 }\nname = \"b\"\n\n[server]\nport = 1\n"
         );
     }
 
     #[test]
-    fn arrange_moves_objects_after_plain_entries() {
+    fn arrange_follows_the_form_entries_are_written_in() {
+        let source = "point = { x = 1 }\n\n[server]\nport = 1\n";
         let document = object(vec![
+            ("server", object(vec![("port", int("1"))])),
+            ("limits", object(vec![("max", int("5"))])),
             (
-                "server",
-                object(vec![("motd", Node::string("x")), ("port", int("1"))]),
+                "point",
+                object(vec![("x", int("1")), ("deep", object(vec![]))]),
             ),
             (
                 "rules",
@@ -1075,12 +1517,74 @@ mod tests {
             ("empty", Node::Array { items: vec![] }),
             ("debug", boolean(false)),
         ]);
+        let arranged = arrange(source, &document);
         assert_eq!(
-            keys(&arrange(&document)),
-            ["empty", "debug", "server", "rules"]
+            keys(&arranged),
+            ["point", "empty", "debug", "server", "limits", "rules"]
         );
+        // Inside an inline table everything is a `key = value`, kept in the given order.
+        assert_eq!(keys(&entry(&arranged, &["point"]).value), ["x", "deep"]);
+        assert_eq!(
+            apply(source, &document),
+            "point = { x = 1, deep = {} }\nempty = []\ndebug = false\n\n[server]\nport = 1\n\n[limits]\nmax = 5\n\n[[rules]]\n"
+        );
+
         let forge = parse(FORGE).unwrap();
-        assert_eq!(arrange(&forge), forge);
+        assert_eq!(arrange(FORGE, &forge), forge);
+    }
+
+    #[test]
+    fn removing_entries_keeps_the_text_above_them() {
+        // The file header stays; the removed key's own comment goes with it.
+        let source = "# Config file\n\n# Port\nport = 1\nname = \"x\"\n";
+        let mut document = parse(source).unwrap();
+        remove(&mut document, &[], "port");
+        assert_eq!(apply(source, &document), "# Config file\n\nname = \"x\"\n");
+
+        // Without a key after it, the text goes in front of the next header.
+        let source = "# Header\n\nport = 1\n\n[a]\nx = 1\n";
+        let mut document = parse(source).unwrap();
+        remove(&mut document, &[], "port");
+        assert_eq!(apply(source, &document), "# Header\n\n[a]\nx = 1\n");
+
+        let source = "# Config\n\n[a]\nx = 1\n\n# Section b\n[b]\ny = 2\n";
+        let mut document = parse(source).unwrap();
+        remove(&mut document, &[], "a");
+        assert_eq!(
+            apply(source, &document),
+            "# Config\n\n# Section b\n[b]\ny = 2\n"
+        );
+
+        let source = "# Top\n\n[a]\nx = 1\n\n[[r]]\nn = 1\n\n[[r]]\nn = 2\n";
+        let mut document = parse(source).unwrap();
+        remove(&mut document, &[], "a");
+        items_mut(&mut document, &[], "r").remove(0);
+        assert_eq!(apply(source, &document), "# Top\n\n[[r]]\nn = 2\n");
+
+        let mut document = parse(FORGE).unwrap();
+        remove(&mut document, &["general"], "showFps");
+        assert_eq!(
+            apply(FORGE, &document),
+            FORGE.replace("\t# Show the FPS counter\n\tshowFps = true\n", "")
+        );
+    }
+
+    #[test]
+    fn new_root_keys_go_below_the_file_header() {
+        let mut document = parse(FORGE).unwrap();
+        set(&mut document, &[], "version", int("3"));
+        assert_eq!(
+            apply(FORGE, &document),
+            FORGE.replace(
+                "# Forge client config\n\n",
+                "# Forge client config\n\nversion = 3\n\n"
+            )
+        );
+
+        let source = "[a]\nx = 1\n";
+        let mut document = parse(source).unwrap();
+        set(&mut document, &[], "version", int("3"));
+        assert_eq!(apply(source, &document), "version = 3\n\n[a]\nx = 1\n");
     }
 
     #[test]

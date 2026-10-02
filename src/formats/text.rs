@@ -96,6 +96,21 @@ pub fn comment_above(source: &str, line: usize, markers: &[&str]) -> Option<Stri
     Some(lines.join("\n"))
 }
 
+/// Start of the comment block [`comment_above`] reads for the line starting at `line`
+/// (`line` itself when there is none).
+pub fn comment_start(source: &str, line: usize, markers: &[&str]) -> usize {
+    let mut start = line;
+    while start > 0 {
+        let above = line_start(source, start - 1);
+        let text = source[above..start].trim_start();
+        if !markers.iter().any(|marker| text.starts_with(marker)) {
+            break;
+        }
+        start = above;
+    }
+    start
+}
+
 /// A set of non-overlapping replacements applied in one pass.
 #[derive(Default)]
 pub struct Edits {

@@ -212,6 +212,21 @@ motd: |
     }
 
     #[test]
+    fn removing_a_key_takes_its_own_comment() {
+        let mut document = parse(PAPER).unwrap();
+        entries(&mut document, &["settings"]).remove(0);
+        let expected = PAPER.replace("  # Whether the end is enabled\n  allow-end: true\n", "");
+        assert_eq!(apply(PAPER, &document), expected);
+
+        // the file header is separated by a blank line, so it is not the key's comment
+        let mut document = parse(PAPER).unwrap();
+        entries(&mut document, &[]).remove(0);
+        let start = PAPER.find("settings:").unwrap();
+        let end = PAPER.find("spawn-limits:").unwrap();
+        assert_eq!(apply(PAPER, &document), format!("{}{}", &PAPER[..start], &PAPER[end..]));
+    }
+
+    #[test]
     fn indented_sequences_and_flow_collections() {
         let source = "\
 plugins:
@@ -324,6 +339,18 @@ tags: {a: 1, b: two, c: null}
         });
         set(&mut document, &["port"], Node::string("25566"));
         assert_eq!(apply(source, &document), "port: '25566'\nid: !!int 7\n");
+    }
+
+    #[test]
+    fn keep_chomping_blocks_own_their_empty_lines() {
+        let source = "keep: |+\n  kept\n\nafter: 1\n";
+        let mut document = parse(source).unwrap();
+        entries(&mut document, &[]).insert(1, Entry::new("new", int("1"), None));
+        assert_eq!(apply(source, &document), "keep: |+\n  kept\n\nnew: 1\nafter: 1\n");
+
+        let mut document = parse(source).unwrap();
+        entries(&mut document, &[]).remove(0);
+        assert_eq!(apply(source, &document), "after: 1\n");
     }
 
     #[test]

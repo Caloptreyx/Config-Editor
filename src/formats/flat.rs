@@ -169,10 +169,10 @@ pub fn match_keys<'k>(
         .collect()
 }
 
-/// Applies `document` to one container of flat entries: drops the lines of removed keys,
-/// replaces changed values with the edit `rewrite` returns (start, end, text) and inserts new
-/// keys rendered by `render` after the preceding kept key (before the first kept key and its
-/// comment block when none precedes, at `end` when nothing is kept).
+/// Applies `document` to one container of flat entries: drops the lines of removed keys with
+/// their comment blocks, replaces changed values with the edit `rewrite` returns (start, end,
+/// text) and inserts new keys rendered by `render` after the preceding kept key (before the
+/// first kept key and its comment block when none precedes, at `end` when nothing is kept).
 /// Returns `false` without editing when kept keys changed their relative order.
 pub fn edit_container<T: AsRef<Line>, E: Borrow<Entry>>(
     writer: &mut LineEdits<'_>,
@@ -197,15 +197,18 @@ pub fn edit_container<T: AsRef<Line>, E: Borrow<Entry>>(
     for &index in matches.iter().flatten() {
         kept[index] = true;
     }
-    for (line, kept) in lines.iter().zip(kept) {
+    for (index, kept) in kept.into_iter().enumerate() {
         if !kept {
-            writer.delete(line.as_ref().start, line.as_ref().end);
+            let start = block_start(writer, lines, index);
+            writer.delete(start, lines[index].as_ref().end);
         }
     }
 
-    let mut at = matches.iter().flatten().next().map_or(end, |&index| {
-        writer.comment_start(lines[index].as_ref().start)
-    });
+    let mut at = matches
+        .iter()
+        .flatten()
+        .next()
+        .map_or(end, |&index| block_start(writer, lines, index));
     for (entry, target) in document.iter().zip(matches) {
         let entry = entry.borrow();
         let value = scalar_text(&entry.value).unwrap_or_default();
@@ -222,6 +225,15 @@ pub fn edit_container<T: AsRef<Line>, E: Borrow<Entry>>(
         }
     }
     true
+}
+
+/// Start of the comment block above `lines[index]`, never reaching into the entry before it
+/// (a continued or multi-line value may contain lines that look like comments).
+fn block_start<T: AsRef<Line>>(writer: &LineEdits<'_>, lines: &[T], index: usize) -> usize {
+    let floor = index
+        .checked_sub(1)
+        .map_or(0, |previous| lines[previous].as_ref().end);
+    writer.comment_start(lines[index].as_ref().start).max(floor)
 }
 
 #[cfg(test)]

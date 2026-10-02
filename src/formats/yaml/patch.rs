@@ -193,15 +193,18 @@ impl<'a> Patcher<'a> {
                 },
             );
         }
+        // an entry owns the comment block above it (its `comment`)
+        let comment_start =
+            |at: usize| text::comment_start(source, text::line_start(source, at), &["#"]);
         for (entry, _) in entries.iter().zip(&removed).filter(|(_, removed)| **removed) {
             self.edits.delete(
-                text::line_start(source, entry.key_start),
+                comment_start(entry.key_start),
                 text::next_line(source, entry.value.end),
             );
         }
         for (after, position) in inserted {
             let line = write::entry(&new[position], column, self.style);
-            self.insert_line(after.map(|at| entries[at].value.end), first, &line);
+            self.insert_line(after.map(|at| entries[at].value.end), comment_start(first), &line);
         }
         true
     }
@@ -259,7 +262,8 @@ impl<'a> Patcher<'a> {
         }
         for (after, position) in inserted {
             let line = write::item(&new[position], column, self.style);
-            self.insert_line(after.map(|at| items[at].value.end), first, &line);
+            let before = text::line_start(source, first);
+            self.insert_line(after.map(|at| items[at].value.end), before, &line);
         }
         true
     }
@@ -271,18 +275,15 @@ impl<'a> Patcher<'a> {
             .is_empty()
     }
 
-    /// Adds `line` (already indented) after the line holding `after`, or before the line of
-    /// `first` when there is nothing before it.
-    fn insert_line(&mut self, after: Option<usize>, first: usize, line: &str) {
+    /// Adds `line` (already indented) after the line holding `after`, or at the line start
+    /// `before` when there is nothing before it.
+    fn insert_line(&mut self, after: Option<usize>, before: usize, line: &str) {
         match after {
             Some(after) => {
                 let at = text::line_end(self.source, after);
                 self.put(at, at, &format!("\n{line}"));
             }
-            None => {
-                let at = text::line_start(self.source, first);
-                self.put(at, at, &format!("{line}\n"));
-            }
+            None => self.put(before, before, &format!("{line}\n")),
         }
     }
 

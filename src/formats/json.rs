@@ -76,6 +76,8 @@ enum Shape {
 struct Member {
     /// The key literal of an entry, the value of an item.
     start: usize,
+    /// Start of the member's lines: the comment block above its key, else its own line.
+    lines_from: usize,
     value: Span,
     comma: Option<usize>,
 }
@@ -205,14 +207,17 @@ impl Parser<'_> {
             let (value, span) = self.value(depth + 1)?;
             let (comma, closed) = self.separator(b'}')?;
 
+            let line = text::line_start(self.source, start);
             let comment = if text::starts_line(self.source, start) {
-                comment_above(self.source, text::line_start(self.source, start))
+                comment_above(self.source, line)
             } else {
                 None
             };
-            entries.push(Entry::new(key, value, comment));
+            let lines_from = comment.as_ref().map_or(line, |(at, _)| *at);
+            entries.push(Entry::new(key, value, comment.map(|(_, body)| body)));
             members.push(Member {
                 start,
+                lines_from,
                 value: span,
                 comma,
             });
@@ -238,6 +243,7 @@ impl Parser<'_> {
             items.push(value);
             members.push(Member {
                 start: span.start,
+                lines_from: text::line_start(self.source, span.start),
                 value: span,
                 comma,
             });
@@ -432,14 +438,26 @@ fn scan_number(bytes: &[u8], start: usize) -> Option<(usize, bool)> {
     Some((at, integer))
 }
 
-/// The comment directly above the line starting at `line`: a `/* */` block or `//` lines.
-fn comment_above(source: &str, line: usize) -> Option<String> {
-    block_comment_above(source, line).or_else(|| text::comment_above(source, line, &["//"]))
+/// The comment directly above the line starting at `line` (a `/* */` block or `//` lines):
+/// the start of its first line and its text.
+fn comment_above(source: &str, line: usize) -> Option<(usize, String)> {
+    block_comment_above(source, line).or_else(|| {
+        let body = text::comment_above(source, line, &["//"])?;
+        let mut start = line;
+        while start > 0 {
+            let above = text::line_start(source, start - 1);
+            if !source[above..start].trim_start().starts_with("//") {
+                break;
+            }
+            start = above;
+        }
+        Some((start, body))
+    })
 }
 
 /// A `/* */` comment that starts its line and ends the line above `line`. Lines lose their
 /// indentation, a leading `*` and one space; blank first and last lines are dropped.
-fn block_comment_above(source: &str, line: usize) -> Option<String> {
+fn block_comment_above(source: &str, line: usize) -> Option<(usize, String)> {
     if line == 0 {
         return None;
     }
@@ -464,7 +482,10 @@ fn block_comment_above(source: &str, line: usize) -> Option<String> {
         .collect();
     let first = lines.iter().position(|row| !row.is_empty())?;
     let last = lines.iter().rposition(|row| !row.is_empty())?;
-    Some(lines[first..=last].join("\n"))
+    Some((
+        text::line_start(source, open),
+        lines[first..=last].join("\n"),
+    ))
 }
 
 /// How new text is laid out: the file's indent unit and line ending.
@@ -701,7 +722,7 @@ impl Patcher<'_> {
         let indent = text::indentation(source, members[0].start);
         let trailing = members[members.len() - 1].comma.is_some();
         let last = new.len() - 1;
-        let mut anchor = text::next_line(source, span.start);
+        let mut anchor = members[0].lines_from;
         let mut lines = String::new();
         for step in steps {
             match *step {
@@ -717,9 +738,8 @@ impl Patcher<'_> {
                 }
                 Step::Remove(from) => {
                     let member = &members[from];
-                    let start = text::line_start(source, member.start);
                     let end = text::next_line(source, member.after());
-                    self.edits.delete(start, end);
+                    self.edits.delete(member.lines_from, end);
                 }
                 Step::Insert(to) => {
                     let (key, value) = new[to];
@@ -1052,12 +1072,12 @@ mod tests {
     }
 
     #[test]
-    fn removing_a_key_removes_only_its_lines() {
+    fn removing_a_key_removes_its_lines_and_its_comment() {
         let mut document = parse(SETTINGS).unwrap();
         entries(&mut document).remove(0);
         assert_eq!(
             apply(SETTINGS, &document),
-            SETTINGS.replace("  \"editor.fontSize\": 14,\n", "")
+            SETTINGS.replace("  // Font size in pixels\n  \"editor.fontSize\": 14,\n", "")
         );
 
         let mut document = parse(SETTINGS).unwrap();
@@ -1065,6 +1085,32 @@ mod tests {
         assert_eq!(
             apply(SETTINGS, &document),
             SETTINGS.replace("  \"window.title\": \"${activeEditorShort}\",\n", "")
+        );
+    }
+
+    #[test]
+    fn keys_inserted_first_go_above_the_first_comment() {
+        let mut document = parse(SETTINGS).unwrap();
+        entries(&mut document).insert(0, Entry::new("editor.wordWrap", Node::string("on"), None));
+        assert_eq!(
+            apply(SETTINGS, &document),
+            SETTINGS.replace(
+                "{\n  // Font size",
+                "{\n  \"editor.wordWrap\": \"on\",\n  // Font size"
+            )
+        );
+
+        let source = "{\n  // Section\n\n  // about a\n  \"a\": 1\n}\n";
+        let mut document = parse(source).unwrap();
+        entries(&mut document).insert(0, Entry::new("z", int("2"), None));
+        assert_eq!(
+            apply(source, &document),
+            "{\n  // Section\n\n  \"z\": 2,\n  // about a\n  \"a\": 1\n}\n"
+        );
+        entries(&mut document).remove(1);
+        assert_eq!(
+            apply(source, &document),
+            "{\n  // Section\n\n  \"z\": 2\n}\n"
         );
     }
 
@@ -1083,8 +1129,6 @@ mod tests {
 {
   // Font size in pixels
   "editor.fontSize": 14,
-  /* Tab width
-   * in spaces */
   "files.exclude": {
     "**/.git": true, // hide git
     "**/node_modules": true,

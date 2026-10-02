@@ -170,7 +170,7 @@ impl Format {
         let document = match self {
             // TOML lists a table's plain keys before its sub-tables, INI its global keys
             // before the sections, whatever order they are sent in
-            Self::Toml => toml::arrange(&checked),
+            Self::Toml => toml::arrange(original, &checked),
             Self::Ini => globals_first(checked),
             _ => checked,
         };

@@ -160,9 +160,21 @@ fn edit(source: &str, file: &File, entries: &[Entry]) -> Option<String> {
     let render = |key: &str, value: &str| format!("{key}{separator}{value}");
     let mut writer = LineEdits::new(source, COMMENT_MARKERS);
 
+    let names: Vec<&str> = file
+        .sections
+        .iter()
+        .map(|section| section.name.as_str())
+        .collect();
+    let matches = match_keys(&names, sections.iter().map(|(name, _)| *name))?;
+    let mut kept = vec![false; file.sections.len()];
+    for &index in matches.iter().flatten() {
+        kept[index] = true;
+    }
+
     let globals_end = match (file.globals.last(), file.sections.first()) {
         (Some(key), _) => key.line.end,
-        (None, Some(section)) => writer.comment_start(section.start),
+        (None, Some(first)) if kept[0] => writer.comment_start(first.start),
+        (None, Some(first)) => removal_start(source, &writer, first),
         (None, None) => source.len(),
     };
     if !edit_container(
@@ -176,27 +188,11 @@ fn edit(source: &str, file: &File, entries: &[Entry]) -> Option<String> {
         return None;
     }
 
-    let names: Vec<&str> = file
-        .sections
-        .iter()
-        .map(|section| section.name.as_str())
-        .collect();
-    let matches = match_keys(&names, sections.iter().map(|(name, _)| *name))?;
-    let mut kept = vec![false; file.sections.len()];
-    for &index in matches.iter().flatten() {
-        kept[index] = true;
-    }
     for (section, kept) in file.sections.iter().zip(kept) {
-        if kept {
-            continue;
+        if !kept {
+            let start = removal_start(source, &writer, section);
+            writer.delete(start, section.end());
         }
-        // A section ending the file takes the blank lines above it along.
-        let start = if section.end() == source.len() {
-            blank_lines_start(source, section.start)
-        } else {
-            section.start
-        };
-        writer.delete(start, section.end());
     }
 
     let first_kept = matches.iter().flatten().next().copied();
@@ -255,6 +251,17 @@ fn edit_section(
         .map(|key| key_text(key, separator) + eol)
         .collect();
     writer.replace(section.header_end, section.end(), lines);
+}
+
+/// Where the text of a removed section starts: its header's comment block, and when it ends
+/// the file also the blank lines above.
+fn removal_start(source: &str, writer: &LineEdits<'_>, section: &Section) -> usize {
+    let start = writer.comment_start(section.start);
+    if section.end() == source.len() {
+        blank_lines_start(source, start)
+    } else {
+        start
+    }
 }
 
 /// Start of the blank lines directly above the line starting at `line`.
@@ -512,6 +519,30 @@ mod tests {
         assert_eq!(
             apply(source, &document),
             "; header\n\nname=v\n; db\n[db]\nhost=x\n"
+        );
+
+        // The removed section's place, its comment and the blank line above it are gone.
+        let mut document = parse(source).unwrap();
+        *container(&mut document, None) = vec![Entry::new("name", infer("v"), None)];
+        assert_eq!(apply(source, &document), "; header\nname=v\n");
+    }
+
+    #[test]
+    fn removed_keys_and_sections_take_their_comment_block() {
+        let source = "[a]\nx=1\n; about y\ny=2\n\n; about b\n[b]\nz=3\n\n; about c\n[c]\nw=4\n";
+        let mut document = parse(source).unwrap();
+        container(&mut document, Some("a")).pop();
+        container(&mut document, None).pop();
+        assert_eq!(
+            apply(source, &document),
+            "[a]\nx=1\n\n; about b\n[b]\nz=3\n"
+        );
+
+        let mut document = parse(source).unwrap();
+        container(&mut document, None).remove(1);
+        assert_eq!(
+            apply(source, &document),
+            "[a]\nx=1\n; about y\ny=2\n\n\n; about c\n[c]\nw=4\n"
         );
     }
 
