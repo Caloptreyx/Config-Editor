@@ -60,7 +60,7 @@ export default function FileListRow({
         {hint && <span className='min-w-0 flex-1 truncate text-xs text-(--mantine-color-dimmed)'>{hint}</span>}
         {!hint && <span className='flex-1' />}
         {format && (
-          <span className='shrink-0 font-mono text-[10px] uppercase tracking-wide text-(--mantine-color-dimmed) group-hover:hidden'>
+          <span className='shrink-0 font-mono text-[10px] uppercase tracking-wide text-(--mantine-color-dimmed) group-focus-within:hidden group-hover:hidden'>
             {tExt(`formats.${format}`, {})}
           </span>
         )}
