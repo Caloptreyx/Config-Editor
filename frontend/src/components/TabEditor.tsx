@@ -58,11 +58,12 @@ export default function TabEditor({
     onUpdate((current) => (current.document ? { ...current, document: update(current.document) } : current));
 
   return (
-    <div className='flex flex-col gap-4 p-4'>
+    <div className='flex min-h-0 flex-1 flex-col'>
       <ReviewChangesModal diff={review} onClose={() => setReview(null)} />
 
       <TabToolbar
         path={tab.path}
+        format={tab.file.format}
         raw={tab.raw}
         rawLockedReason={
           !tab.file.document ? tExt('toolbar.rawModeUnavailable', {}) : dirty ? tExt('toolbar.rawModeLocked', {}) : null
@@ -83,7 +84,11 @@ export default function TabEditor({
         onToggleRaw={() => onUpdate((current) => ({ ...current, raw: !current.raw }))}
       />
 
-      {tab.file.error && <ParseErrorAlert error={tab.file.error} />}
+      {tab.file.error && (
+        <div className='shrink-0 px-4 pt-3'>
+          <ParseErrorAlert error={tab.file.error} />
+        </div>
+      )}
 
       {document ? (
         <VisualEditor

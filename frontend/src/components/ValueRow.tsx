@@ -2,8 +2,8 @@ import { isContainer, type Node, type NodePath } from '../lib/node.ts';
 import { useExtTranslations } from '../translations.ts';
 import CollapsibleGroup from './CollapsibleGroup.tsx';
 import ContainerBody from './ContainerBody.tsx';
-import FieldLabel from './FieldLabel.tsx';
-import FieldRow from './FieldRow.tsx';
+import { FieldName, FieldRow, ItemRow } from './FieldRow.tsx';
+import KindMark from './KindMark.tsx';
 import RowActions from './RowActions.tsx';
 import ScalarControl from './ScalarControl.tsx';
 
@@ -24,20 +24,30 @@ export default function ValueRow({
   query: string;
 }) {
   const { tItem } = useExtTranslations();
-  const label = <FieldLabel name={name} kind={node.kind} />;
   const actions = <RowActions path={path} count={count} />;
+  const index = path[path.length - 1];
 
   if (!isContainer(node)) {
-    return (
-      <FieldRow label={label} description={description} actions={actions}>
-        <ScalarControl node={node} name={name} path={path} />
+    const control = <ScalarControl node={node} name={name} path={path} />;
+
+    return count === undefined ? (
+      <FieldRow
+        label={<FieldName name={name} mark={<KindMark kind={node.kind} />} />}
+        description={description}
+        actions={actions}
+      >
+        {control}
       </FieldRow>
+    ) : (
+      <ItemRow index={index + 1} actions={actions}>
+        {control}
+      </ItemRow>
     );
   }
 
   return (
     <CollapsibleGroup
-      label={label}
+      label={<FieldName name={name} mark={<KindMark kind={node.kind} />} />}
       summary={node.kind === 'array' ? tItem('item', node.items.length) : tItem('key', node.entries.length)}
       description={description}
       actions={actions}

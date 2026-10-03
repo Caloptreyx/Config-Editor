@@ -17,7 +17,7 @@ export default function RawEditor({
   onChange: (content: string) => void;
 }) {
   return (
-    <div className='h-[calc(100vh-20rem)] min-h-80 overflow-hidden rounded-md border border-(--mantine-color-default-border)'>
+    <div className='m-4 min-h-80 flex-1 overflow-hidden rounded-md border border-(--mantine-color-default-border)'>
       <MonacoEditor
         height='100%'
         width='100%'

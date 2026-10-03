@@ -1,10 +1,13 @@
+import { faChevronRight, faHouse } from '@fortawesome/free-solid-svg-icons';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import classNames from 'classnames';
 import { join } from 'pathe';
-import UnstyledButton from '@/elements/buttons/UnstyledButton.tsx';
-import Breadcrumbs from '@/elements/data-display/Breadcrumbs.tsx';
+import { Fragment } from 'react';
 import { pathSegments } from '@/lib/path.ts';
 import { useExtTranslations } from '../translations.ts';
 
-const LINK_CLASS = 'text-sm text-(--mantine-color-anchor) hover:underline';
+const CRUMB_CLASS =
+  'mantine-focus-auto min-w-0 cursor-pointer truncate rounded px-1 py-0.5 hover:bg-(--mantine-color-default-hover)';
 
 export default function DirectoryBreadcrumbs({
   directory,
@@ -17,21 +20,35 @@ export default function DirectoryBreadcrumbs({
   const segments = pathSegments(directory);
 
   return (
-    <Breadcrumbs separatorMargin={4} className='flex-wrap px-2'>
-      <UnstyledButton className={LINK_CLASS} onClick={() => onNavigate('/')}>
-        {tExt('browser.root', {})}
-      </UnstyledButton>
-      {segments.map((segment, index) =>
-        index === segments.length - 1 ? (
-          <span key={segment.path} className='text-sm'>
+    <div className='mx-1 flex min-w-0 flex-wrap items-center gap-0.5 rounded-md bg-(--mantine-color-default) px-1.5 py-1 font-mono text-xs light:bg-(--mantine-color-gray-0)'>
+      <button
+        type='button'
+        title={tExt('browser.root', {})}
+        aria-label={tExt('browser.root', {})}
+        className={classNames(
+          CRUMB_CLASS,
+          segments.length === 0 ? 'text-(--mantine-color-text)' : 'text-(--mantine-color-dimmed)',
+        )}
+        onClick={() => onNavigate('/')}
+      >
+        <FontAwesomeIcon icon={faHouse} />
+      </button>
+      {segments.map((segment, index) => (
+        <Fragment key={segment.path}>
+          <FontAwesomeIcon icon={faChevronRight} className='text-[8px] text-(--mantine-color-dimmed)' />
+          <button
+            type='button'
+            title={segment.name}
+            className={classNames(
+              CRUMB_CLASS,
+              index === segments.length - 1 ? 'text-(--mantine-color-text)' : 'text-(--mantine-color-dimmed)',
+            )}
+            onClick={() => onNavigate(join('/', segment.path))}
+          >
             {segment.name}
-          </span>
-        ) : (
-          <UnstyledButton key={segment.path} className={LINK_CLASS} onClick={() => onNavigate(join('/', segment.path))}>
-            {segment.name}
-          </UnstyledButton>
-        ),
-      )}
-    </Breadcrumbs>
+          </button>
+        </Fragment>
+      ))}
+    </div>
   );
 }

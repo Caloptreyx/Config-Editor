@@ -10,21 +10,26 @@ import { useDocumentEditing } from './documentEditing.ts';
 function Action({
   icon,
   label,
-  color = 'gray',
+  danger = false,
   disabled,
   onClick,
 }: {
   icon: IconDefinition;
   label: string;
-  color?: string;
+  /** Turns red on hover. */
+  danger?: boolean;
   disabled?: boolean;
   onClick: () => void;
 }) {
   return (
     <Tooltip label={label}>
       <ActionIcon
+        size='sm'
         variant='subtle'
-        color={color}
+        color='gray'
+        className={
+          danger ? 'hover:bg-(--mantine-color-red-light)! hover:text-(--mantine-color-red-light-color)!' : undefined
+        }
         disabled={disabled}
         aria-label={label}
         onClick={(e) => {
@@ -67,7 +72,7 @@ export default function RowActions({ path, count }: { path: NodePath; count?: nu
       <Action
         icon={faTrash}
         label={tExt('editor.remove', {})}
-        color='red'
+        danger
         onClick={() => edit((document) => removeAt(document, path))}
       />
     </Group>

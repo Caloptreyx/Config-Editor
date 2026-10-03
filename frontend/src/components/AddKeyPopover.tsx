@@ -1,5 +1,3 @@
-import { faPlus } from '@fortawesome/free-solid-svg-icons';
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { type FormEvent, useState } from 'react';
 import Button from '@/elements/buttons/Button.tsx';
 import Select from '@/elements/input/Select.tsx';
@@ -9,6 +7,7 @@ import Popover from '@/elements/overlays/Popover.tsx';
 import { useTranslations } from '@/providers/TranslationProvider.tsx';
 import { appendEntry, defaultNode, type NodeKind, type NodePath } from '../lib/node.ts';
 import { useExtTranslations } from '../translations.ts';
+import AddButton from './AddButton.tsx';
 import { useDocumentEditing } from './documentEditing.ts';
 
 export default function AddKeyPopover({
@@ -55,15 +54,7 @@ export default function AddKeyPopover({
   return (
     <Popover opened={opened} onChange={(next) => (next ? setOpened(true) : close())} position='bottom-start' trapFocus>
       <Popover.Target>
-        <Button
-          size='xs'
-          variant='light'
-          className='self-start'
-          leftSection={<FontAwesomeIcon icon={faPlus} />}
-          onClick={() => (opened ? close() : setOpened(true))}
-        >
-          {tExt('editor.addKey', {})}
-        </Button>
+        <AddButton label={tExt('editor.addKey', {})} onClick={() => (opened ? close() : setOpened(true))} />
       </Popover.Target>
       <Popover.Dropdown>
         <form onSubmit={submit}>

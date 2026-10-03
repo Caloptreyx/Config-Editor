@@ -1,7 +1,6 @@
 import { faPen } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import Button from '@/elements/buttons/Button.tsx';
-import Badge from '@/elements/data-display/Badge.tsx';
 import Group from '@/elements/layout/Group.tsx';
 import Menu from '@/elements/overlays/Menu.tsx';
 import { allowedChildKinds } from '../lib/formats.ts';
@@ -16,9 +15,9 @@ export default function NullValue({ path }: { path: NodePath }) {
 
   return (
     <Group gap='xs'>
-      <Badge variant='light' color='gray' className='font-mono!'>
+      <span className='rounded border border-dashed border-(--mantine-color-default-border) px-2 py-0.5 font-mono text-xs text-(--mantine-color-dimmed)'>
         null
-      </Badge>
+      </span>
       {!readOnly && kinds.length > 0 && (
         <Menu position='bottom-start'>
           <Menu.Target>

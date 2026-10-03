@@ -2,30 +2,36 @@ import { faXmark } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import classNames from 'classnames';
 import { basename } from 'pathe';
-import ActionIcon from '@/elements/buttons/ActionIcon.tsx';
-import UnstyledButton from '@/elements/buttons/UnstyledButton.tsx';
+import Spinner from '@/elements/feedback/Spinner.tsx';
 import { type EditorTab, isTabDirty } from '../lib/tabs.ts';
 import { useExtTranslations } from '../translations.ts';
-import FormatBadge from './FormatBadge.tsx';
+import { FormatIcon } from './FormatBadge.tsx';
 
 export default function EditorTabBar({
   tabs,
   activePath,
+  opening,
   onSelect,
   onClose,
 }: {
   tabs: EditorTab[];
   activePath: string | null;
+  /** A file is being fetched for a new tab. */
+  opening: boolean;
   onSelect: (path: string) => void;
   onClose: (path: string) => void;
 }) {
   const { t: tExt } = useExtTranslations();
 
   return (
-    <div role='tablist' className='flex overflow-x-auto border-b border-(--mantine-color-default-border)'>
+    <div
+      role='tablist'
+      className='flex shrink-0 gap-1 overflow-x-auto border-b border-(--mantine-color-default-border) bg-(--mantine-color-default) px-2 pt-2 light:bg-(--mantine-color-gray-0)'
+    >
       {tabs.map((tab) => {
         const name = basename(tab.path);
         const active = tab.path === activePath;
+        const dirty = isTabDirty(tab);
 
         return (
           <div
@@ -36,41 +42,43 @@ export default function EditorTabBar({
               onClose(tab.path);
             }}
             className={classNames(
-              'flex h-10.5 max-w-64 shrink-0 items-center gap-1 border-r border-b-2 border-(--mantine-color-default-border)',
+              'group -mb-px flex h-9 max-w-60 shrink-0 items-center gap-1 rounded-t-md border border-b-0 pr-1.5 transition-colors',
               active
-                ? 'border-b-(--mantine-primary-color-filled) bg-(--mantine-color-default-hover)'
-                : 'border-b-transparent hover:bg-(--mantine-color-default-hover)',
+                ? 'border-(--mantine-color-default-border) bg-(--mantine-color-body) text-(--mantine-color-text) dark:bg-(--mantine-color-dark-6)'
+                : 'border-transparent text-(--mantine-color-dimmed) hover:bg-(--mantine-color-default-hover) hover:text-(--mantine-color-text)',
             )}
           >
-            <UnstyledButton
+            <button
+              type='button'
               role='tab'
               title={tab.path}
               aria-selected={active}
               onClick={() => onSelect(tab.path)}
-              className='flex min-w-0 flex-1 items-center gap-2 py-2 pl-3 text-sm'
+              className='mantine-focus-auto flex h-full min-w-0 flex-1 cursor-pointer items-center gap-2 pl-3 text-sm!'
             >
-              <span className='truncate'>{name}</span>
-              <FormatBadge format={tab.file.format} />
-              {isTabDirty(tab) && (
-                <span
-                  aria-label={tExt('tabs.unsaved', { name })}
-                  className='h-2 w-2 shrink-0 rounded-full bg-(--mantine-primary-color-filled)'
-                />
-              )}
-            </UnstyledButton>
-            <ActionIcon
-              size='xs'
-              variant='subtle'
-              color='gray'
-              className='mr-1.5 shrink-0'
+              <FormatIcon format={tab.file.format} className='shrink-0 text-xs' />
+              <span className={classNames('truncate', dirty && 'italic')}>{name}</span>
+            </button>
+            <button
+              type='button'
               aria-label={tExt('tabs.close', { name })}
+              title={dirty ? tExt('tabs.unsaved', { name }) : tExt('tabs.close', { name })}
               onClick={() => onClose(tab.path)}
+              className='mantine-focus-auto grid h-5 w-5 shrink-0 cursor-pointer place-items-center rounded text-xs! hover:bg-(--mantine-color-default-hover)'
             >
-              <FontAwesomeIcon icon={faXmark} />
-            </ActionIcon>
+              {dirty && (
+                <span className='h-2 w-2 rounded-full bg-(--mantine-primary-color-filled) group-hover:hidden' />
+              )}
+              <FontAwesomeIcon icon={faXmark} className={classNames(dirty && 'hidden! group-hover:inline-block!')} />
+            </button>
           </div>
         );
       })}
+      {opening && (
+        <div className='flex h-9 items-center px-3'>
+          <Spinner size={14} />
+        </div>
+      )}
     </div>
   );
 }

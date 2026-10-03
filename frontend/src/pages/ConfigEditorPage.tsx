@@ -1,10 +1,8 @@
-import { faSliders } from '@fortawesome/free-solid-svg-icons';
 import { basename } from 'pathe';
 import { useState } from 'react';
 import { useBeforeUnload } from 'react-router';
 import ServerContentContainer from '@/elements/containers/ServerContentContainer.tsx';
 import Card from '@/elements/data-display/Card.tsx';
-import EmptyState from '@/elements/feedback/EmptyState.tsx';
 import Spinner from '@/elements/feedback/Spinner.tsx';
 import ConfirmationModal from '@/elements/modals/ConfirmationModal.tsx';
 import { useBlocker } from '@/plugins/useBlocker.ts';
@@ -15,6 +13,7 @@ import ConflictModal from '../components/ConflictModal.tsx';
 import EditorTabBar from '../components/EditorTabBar.tsx';
 import SidePanel from '../components/SidePanel.tsx';
 import TabEditor from '../components/TabEditor.tsx';
+import WelcomeState from '../components/WelcomeState.tsx';
 import { isTabDirty, isTabSavable } from '../lib/tabs.ts';
 import { useExtTranslations } from '../translations.ts';
 import useEditorTabs from './useEditorTabs.ts';
@@ -56,7 +55,7 @@ export default function ConfigEditorPage() {
   };
 
   return (
-    <ServerContentContainer title={tExt('common.configEditor', {})}>
+    <ServerContentContainer title={tExt('common.configEditor', {})} subtitle={tExt('common.subtitle', {})}>
       <ConfirmationModal
         title={t('pages.server.files.modal.unsavedChanges.title', {})}
         opened={blocker.state === 'blocked'}
@@ -88,19 +87,20 @@ export default function ConfigEditorPage() {
         onOverwrite={() => conflictTab && save(conflictTab, true)}
       />
 
-      <div className='grid grid-cols-1 items-start gap-4 lg:grid-cols-[18rem_minmax(0,1fr)]'>
+      <div className='grid grid-cols-1 gap-4 lg:h-[calc(100dvh-12rem)] lg:min-h-[32rem] lg:grid-cols-[17rem_minmax(0,1fr)]'>
         <SidePanel serverUuid={server.uuid} activePath={activeTab?.path ?? null} onOpen={open} />
 
-        <Card p={0} className='min-w-0'>
+        <Card p={0} className='flex min-h-[32rem] min-w-0 flex-col overflow-hidden lg:min-h-0'>
           {tabs.length > 0 && (
             <EditorTabBar
               tabs={tabs}
               activePath={activeTab?.path ?? null}
+              opening={opening}
               onSelect={setActivePath}
               onClose={requestClose}
             />
           )}
-          {opening && <Spinner.Centered className='py-4' />}
+          {opening && tabs.length === 0 && <Spinner.Centered className='py-4' />}
           {activeTab ? (
             <TabEditor
               key={activeTab.path}
@@ -111,14 +111,7 @@ export default function ConfigEditorPage() {
               onSave={() => save(activeTab)}
             />
           ) : (
-            !opening && (
-              <EmptyState
-                flush
-                icon={faSliders}
-                title={tExt('tabs.emptyTitle', {})}
-                description={tExt('tabs.emptyDescription', {})}
-              />
-            )
+            !opening && <WelcomeState />
           )}
         </Card>
       </div>

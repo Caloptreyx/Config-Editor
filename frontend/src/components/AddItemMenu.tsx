@@ -1,9 +1,7 @@
-import { faPlus } from '@fortawesome/free-solid-svg-icons';
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import Button from '@/elements/buttons/Button.tsx';
 import Menu from '@/elements/overlays/Menu.tsx';
 import { appendItem, defaultNode, type NodeKind, type NodePath } from '../lib/node.ts';
 import { useExtTranslations } from '../translations.ts';
+import AddButton from './AddButton.tsx';
 import { useDocumentEditing } from './documentEditing.ts';
 
 export default function AddItemMenu({ path, kinds }: { path: NodePath; kinds: NodeKind[] }) {
@@ -11,11 +9,9 @@ export default function AddItemMenu({ path, kinds }: { path: NodePath; kinds: No
   const { edit } = useDocumentEditing();
 
   return (
-    <Menu position='bottom-start'>
+    <Menu position='bottom'>
       <Menu.Target>
-        <Button size='xs' variant='light' className='self-start' leftSection={<FontAwesomeIcon icon={faPlus} />}>
-          {tExt('editor.addItem', {})}
-        </Button>
+        <AddButton label={tExt('editor.addItem', {})} />
       </Menu.Target>
       <Menu.Dropdown>
         {kinds.map((kind) => (

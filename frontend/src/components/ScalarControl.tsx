@@ -57,6 +57,8 @@ export default function ScalarControl({ node, name, path }: { node: Node; name: 
           aria-label={name}
           checked={node.value}
           disabled={readOnly}
+          label={node.value ? 'true' : 'false'}
+          classNames={{ label: 'font-mono text-xs! text-(--mantine-color-dimmed)!' }}
           onChange={(e) => set({ kind: 'boolean', value: e.currentTarget.checked })}
         />
       );
