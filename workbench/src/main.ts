@@ -2,6 +2,7 @@ import { initialize as initializeServices, getService, IWorkingCopyService, LogL
 import { SyncDescriptor } from '@codingame/monaco-vscode-api/vscode/vs/platform/instantiation/common/descriptors';
 import { URI } from '@codingame/monaco-vscode-api/vscode/vs/base/common/uri';
 import { Schemas } from '@codingame/monaco-vscode-api/vscode/vs/base/common/network';
+import type { IMonacoEnvironment } from '@codingame/monaco-vscode-api/vscode/vs/base/browser/browser';
 import { ISearchService } from '@codingame/monaco-vscode-api/vscode/vs/workbench/services/search/common/search.service';
 import { SearchProviderType } from '@codingame/monaco-vscode-api/vscode/vs/workbench/services/search/common/search';
 import { SearchHistoryService } from '@codingame/monaco-vscode-api/vscode/vs/workbench/contrib/search/common/searchHistoryService';
@@ -48,6 +49,12 @@ import './extensions.ts';
 import { PanelFiles } from './api.ts';
 import { ServerFileSystemProvider } from './fileSystem.ts';
 import { ServerSearchProvider } from './search.ts';
+
+declare global {
+  interface Window {
+    MonacoEnvironment?: IMonacoEnvironment;
+  }
+}
 
 // Messages exchanged with the Config Editor page that hosts this frame.
 export type HostMessage = { type: 'config-editor-vscode:dirty'; dirty: boolean };
