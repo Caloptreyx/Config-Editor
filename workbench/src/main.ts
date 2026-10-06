@@ -162,7 +162,8 @@ async function start(container: HTMLElement) {
     {
       workspaceProvider: {
         trusted: true,
-        workspace: { folderUri: URI.file('/') },
+        // every server is file:///, so the id keeps open editors and view state per server
+        workspace: { folderUri: URI.file('/'), id: `server-${serverUuid}` },
         async open() {
           return false;
         },

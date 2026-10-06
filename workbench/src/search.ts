@@ -55,15 +55,19 @@ export class ServerSearchProvider implements ISearchResultProvider {
   async clearCache(): Promise<void> {}
 
   async fileSearch(query: IFileQuery, token?: CancellationToken): Promise<ISearchComplete> {
-    const pattern = query.filePattern?.trim() ?? '';
-    const include = globsOf(query.includePattern);
-    if (pattern) {
-      // fuzzy picker input: every typed character in order, like VS Code's own file search
-      include.push(`**/*${[...pattern.replace(/[\\/]/g, '')].map((char) => (/[*?[\]{}!]/.test(char) ? `[${char}]` : char)).join('*')}*`);
-    }
+    const pattern = query.filePattern?.trim().replace(/[\\/]/g, '') ?? '';
+    // Quick Open warms a cache with an empty pattern on every open, which would make Wings list
+    // the whole server; the picker shows recently opened files until something is typed
+    if (!pattern || token?.isCancellationRequested) return complete([], false);
 
+    // fuzzy picker input: every typed character in order, like VS Code's own file search
+    const fuzzy = [...pattern].map((char) => (/[*?[\]{}!]/.test(char) ? `[${char}]` : char)).join('*');
     const response = await this.files.search({
-      path_filter: { include, exclude: globsOf(query.excludePattern), case_insensitive: true },
+      path_filter: {
+        include: [...globsOf(query.includePattern), `**/*${fuzzy}*`],
+        exclude: globsOf(query.excludePattern),
+        case_insensitive: true,
+      },
       content_filter: null,
     });
     if (token?.isCancellationRequested) return complete([], false);
