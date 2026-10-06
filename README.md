@@ -29,6 +29,9 @@ Package name: `dev.caloptreyx.configeditor` · Requires panel `>=1.2.3`
 - **Native integration**: parsing runs in the panel backend (Rust). Writes go through Wings like the
   panel's own file editor, so they create file revisions, appear in the activity log as file writes and
   respect subuser ignored files. Built from the panel's own components.
+- **VS Code**: **Open in VS Code** on the Config Editor page opens the full VS Code workbench for all of
+  the server's files: Explorer, tabs, Quick Open (Ctrl/Cmd+P), Search (Ctrl/Cmd+Shift+F), command
+  palette, breadcrumbs, minimap and outline. See [VS Code](#vs-code).
 
 ## How saving works
 
@@ -60,6 +63,33 @@ Properties, .env and INI files store text, so the editor reads `true`/`false` as
 decimal numbers as numbers; anything else is text. Duplicate keys in any format open the file in raw
 mode, so no value is silently dropped.
 
+## VS Code
+
+The VS Code view is the real VS Code workbench running in the browser
+([monaco-vscode-api](https://github.com/CodinGame/monaco-vscode-api), VS Code 1.138). It loads in a frame
+from `/config-editor-vscode/` on the panel's own origin and talks to the panel's file API directly, so:
+
+- Reads, saves, new files and folders, renames and deletes are the panel's own file operations. They go
+  through Wings with the user's permissions and subuser ignored files, and saves create file revisions
+  and activity log entries like the file manager's.
+- Quick Open and Search use the panel's file search (run by Wings), so nothing walks the server's files
+  from the browser. Wings matches plain text: VS Code checks regular expressions and whole-word matches
+  in the browser against what Wings found for the longest literal part of the pattern. A pattern with
+  no literal part (such as `\d+` or `a|b`) cannot be searched. Results are limited by the panel's
+  **Max File Manager Search Results** and **Max File Manager Content Search Size** settings, and at
+  most 100 matches per file are listed.
+- Files larger than **Max File Manager View Size** cannot be opened or saved.
+- Extensions are limited to the bundled ones: language grammars (YAML, JSON, INI and properties, XML,
+  Lua, JavaScript/TypeScript, Python, Java, shell, PowerShell, batch, SQL, CSS, HTML, Markdown,
+  Dockerfile, .env, logs), the default themes and Seti file icons. There is no marketplace: the
+  workbench runs with the user's panel session, so a third-party extension could act as the user.
+- There is no terminal, debugger or Git: no process runs next to the server's files.
+- The theme follows the panel's light or dark scheme. VS Code settings and layout are kept in the
+  browser's storage.
+
+The workbench adds about 16 MB of static files to the panel build; browsers only load them when the
+view is opened.
+
 ## Permissions
 
 The extension uses the panel's file permissions; it adds none of its own.
@@ -68,9 +98,11 @@ The extension uses the panel's file permissions; it adds none of its own.
 |---|---|
 | Open the page, browse folders, manage favorites | `files.read` |
 | Open a file | `files.read-content` |
-| Save, review changes, raw saves | `files.create` (the panel's file write permission) |
+| Save, review changes, raw saves, create files and folders in VS Code | `files.create` (the panel's file write permission) |
+| Rename or move in VS Code | `files.update` |
+| Delete in VS Code | `files.delete` |
 
-Without `files.create` the editor is read-only.
+Without `files.create` both editors are read-only.
 
 ## Installation
 
@@ -79,9 +111,10 @@ Download `dev_caloptreyx_configeditor.c7s.zip` from the latest release and eithe
 `docker compose restart web`. Extensions need the `:heavy` panel image or a development environment.
 The extension adds one table (`dev_caloptreyx_configeditor_favorites`) through its migration.
 
-Users find **Config Editor** in the server sidebar.
+Users find **Config Editor** in the server sidebar; **Open in VS Code** is at its top right.
 
-To build the zip from a checkout, run `python3 scripts/package.py` (writes `dist/`).
+To build the zip from a checkout, run `python3 scripts/package.py` (writes `dist/`). It builds the VS
+Code workbench first (`npm ci && npm run build` in `workbench/`, Node 20 or newer).
 
 ## API
 
@@ -99,7 +132,13 @@ All routes live under `/api/client/servers/{server}/config-editor`:
 
 The crate lives at the repository root, the frontend in `frontend/`. Every push runs the shared
 extension check (`.github/workflows/check.yml`): typecheck, Biome, frontend build, the node tests in
-`tests/` and `cargo test` against the newest panel release.
+`tests/` and `cargo test` against the newest panel release, plus a typecheck and build of the
+workbench.
+
+The VS Code workbench is a separate Vite app in `workbench/` because it bundles its own Monaco build,
+which cannot share a page with the panel's `monaco-editor`. `npm run build` there writes
+`frontend/public/config-editor-vscode/` (git-ignored), which the panel copies into its own build. Its
+`@codingame/monaco-vscode-*` packages must all have the same version.
 
 ## License
 

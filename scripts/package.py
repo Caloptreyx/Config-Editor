@@ -2,11 +2,15 @@
 """Build the release zip, dist/dev_caloptreyx_configeditor.c7s.zip, from the repository.
 
 The zip has the layout `panel-rs extensions export` produces: `Metadata.toml`, the crate under
-`backend/`, `frontend/` (package.json and src) and `migrations/`. Directory entries come first, then
-files, both in sorted order.
+`backend/`, `frontend/` (package.json, src and public) and `migrations/`. Directory entries come
+first, then files, both in sorted order.
+
+`frontend/public/config-editor-vscode` is the built VS Code workbench (not in git). The script builds
+it first with `npm ci && npm run build` in `workbench/`; pass `--skip-workbench` to reuse a build.
 """
 
 import os
+import subprocess
 import sys
 import zipfile
 
@@ -22,7 +26,12 @@ FILES = [
     (".gitignore", "backend/.gitignore"),
     ("frontend/package.json", "frontend/package.json"),
 ]
-TREES = [("src", "backend/src"), ("frontend/src", "frontend/src"), ("migrations", "migrations")]
+TREES = [
+    ("src", "backend/src"),
+    ("frontend/src", "frontend/src"),
+    ("frontend/public", "frontend/public"),
+    ("migrations", "migrations"),
+]
 
 
 def collect():
@@ -38,7 +47,18 @@ def collect():
     return dirs, files
 
 
+def build_workbench():
+    workbench = os.path.join(ROOT, "workbench")
+    for command in (["npm", "ci", "--ignore-scripts"], ["npm", "run", "build"]):
+        subprocess.run(command, cwd=workbench, check=True)
+
+
 def main():
+    if "--skip-workbench" not in sys.argv:
+        build_workbench()
+    if not os.path.isfile(os.path.join(ROOT, "frontend", "public", "config-editor-vscode", "index.html")):
+        print("frontend/public/config-editor-vscode is missing; build the workbench first", file=sys.stderr)
+        return 1
     dirs, files = collect()
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
     with zipfile.ZipFile(OUT, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as zf:

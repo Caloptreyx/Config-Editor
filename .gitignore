@@ -3,3 +3,4 @@ target
 dist
 exported-extensions
 AGENTS.md
+frontend/public/config-editor-vscode

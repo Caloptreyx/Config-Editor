@@ -1,6 +1,9 @@
+import { faCode } from '@fortawesome/free-solid-svg-icons';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { basename } from 'pathe';
 import { useState } from 'react';
-import { useBeforeUnload } from 'react-router';
+import { NavLink, useBeforeUnload } from 'react-router';
+import Button from '@/elements/buttons/Button.tsx';
 import ServerContentContainer from '@/elements/containers/ServerContentContainer.tsx';
 import Card from '@/elements/data-display/Card.tsx';
 import Spinner from '@/elements/feedback/Spinner.tsx';
@@ -55,7 +58,17 @@ export default function ConfigEditorPage() {
   };
 
   return (
-    <ServerContentContainer title={tExt('common.configEditor', {})} subtitle={tExt('common.subtitle', {})}>
+    <ServerContentContainer
+      title={tExt('common.configEditor', {})}
+      subtitle={tExt('common.subtitle', {})}
+      contentRight={
+        <NavLink to={`/server/${server.uuidShort}/config-editor/vscode`}>
+          <Button size='xs' variant='default' leftSection={<FontAwesomeIcon icon={faCode} />}>
+            {tExt('vscode.open', {})}
+          </Button>
+        </NavLink>
+      }
+    >
       <ConfirmationModal
         title={t('pages.server.files.modal.unsavedChanges.title', {})}
         opened={blocker.state === 'blocked'}

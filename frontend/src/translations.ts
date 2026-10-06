@@ -117,6 +117,11 @@ const translations = defineTranslations({
       unchanged: '{name} is already up to date.',
       reloaded: '{name} reloaded from disk.',
     },
+    vscode: {
+      title: 'VS Code',
+      subtitle: "The full VS Code editor for this server's files. Saves go through the panel like the file manager.",
+      open: 'Open in VS Code',
+    },
   },
 });
 
