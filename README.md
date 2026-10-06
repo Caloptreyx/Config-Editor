@@ -7,6 +7,8 @@ indentation everywhere else stay exactly as they were.
 
 Package name: `dev.caloptreyx.configeditor` · Requires panel `>=1.2.3`
 
+![Config Editor showing paper-global.yml as a form](docs/screenshots/form-editor.png)
+
 ## Features
 
 - **Six formats**: YAML, JSON (including JSONC-style `//` and `/* */` comments and trailing commas),
@@ -32,6 +34,10 @@ Package name: `dev.caloptreyx.configeditor` · Requires panel `>=1.2.3`
 - **VS Code**: **Open in VS Code** on the Config Editor page opens the full VS Code workbench for all of
   the server's files: Explorer, tabs, Quick Open (Ctrl/Cmd+P), Search (Ctrl/Cmd+Shift+F), command
   palette, breadcrumbs, minimap and outline. See [VS Code](#vs-code).
+
+| Typed fields, with comments as help text | Review the exact change before saving |
+|---|---|
+| ![server.properties in the form editor](docs/screenshots/server-properties.png) | ![Review changes diff](docs/screenshots/review-changes.png) |
 
 ## How saving works
 
@@ -64,6 +70,10 @@ decimal numbers as numbers; anything else is text. Duplicate keys in any format 
 mode, so no value is silently dropped.
 
 ## VS Code
+
+| Explorer and editor | Search across the server's files |
+|---|---|
+| ![VS Code with paper-world-defaults.yml open](docs/screenshots/vscode.png) | ![VS Code search results](docs/screenshots/vscode-search.png) |
 
 The VS Code view is the real VS Code workbench running in the browser
 ([monaco-vscode-api](https://github.com/CodinGame/monaco-vscode-api), VS Code 1.138). It loads in a frame
