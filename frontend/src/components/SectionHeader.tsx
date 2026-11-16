@@ -1,6 +1,6 @@
 import type { IconDefinition } from '@fortawesome/free-solid-svg-icons';
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import type { ReactNode } from 'react';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 
 // small uppercase heading of a side panel section with an optional count and actions
 export default function SectionHeader({

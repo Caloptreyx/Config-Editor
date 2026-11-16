@@ -141,7 +141,8 @@ All routes live under `/api/client/servers/{server}/config-editor`:
 ## Development
 
 The crate lives at the repository root, the frontend in `frontend/`. Every push runs the shared
-extension check (`.github/workflows/check.yml`): typecheck, Biome, frontend build, the node tests in
+extension check (`.github/workflows/check.yml`): typecheck, the panel's lint and format check (oxlint and oxfmt
+from panel 1.2.10, Biome before), frontend build, the node tests in
 `tests/` and `cargo test` against the newest panel release, plus a typecheck and build of the
 workbench.
 

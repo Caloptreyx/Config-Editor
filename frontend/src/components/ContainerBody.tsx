@@ -1,5 +1,5 @@
-import classNames from 'classnames';
 import type { ReactNode } from 'react';
+import classNames from 'classnames';
 import { entryMatches, keyMatches, nodeMatches } from '../lib/filter.ts';
 import { allowedChildKinds } from '../lib/formats.ts';
 import { type ContainerNode, isContainer, type NodePath } from '../lib/node.ts';

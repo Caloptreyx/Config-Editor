@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { axiosInstance } from '@/api/axios.ts';
-import { type Entry, FORMATS, type Node } from './lib/node.ts';
 import type { ConfigFile } from './lib/tabs.ts';
+import { type Entry, FORMATS, type Node } from './lib/node.ts';
 
 export const configEditorBase = (serverUuid: string) => `/api/client/servers/${serverUuid}/config-editor`;
 

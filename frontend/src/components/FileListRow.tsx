@@ -1,7 +1,7 @@
+import type { ReactNode } from 'react';
 import { faFolder } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import classNames from 'classnames';
-import type { ReactNode } from 'react';
 import type { Format } from '../lib/node.ts';
 import { useExtTranslations } from '../translations.ts';
 import { FormatIcon } from './FormatBadge.tsx';

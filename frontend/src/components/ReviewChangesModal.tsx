@@ -2,8 +2,8 @@ import { MonacoDiffEditor } from '@/elements/editors/MonacoEditor.tsx';
 import Alert from '@/elements/feedback/Alert.tsx';
 import { Modal } from '@/elements/modals/Modal.tsx';
 import { registerTomlLanguage } from '@/lib/editor/monaco.ts';
-import { monacoLanguage } from '../lib/formats.ts';
 import type { Format } from '../lib/node.ts';
+import { monacoLanguage } from '../lib/formats.ts';
 import { useExtTranslations } from '../translations.ts';
 
 export interface ReviewDiff {

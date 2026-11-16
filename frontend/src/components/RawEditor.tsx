@@ -1,7 +1,7 @@
 import MonacoEditor from '@/elements/editors/MonacoEditor.tsx';
 import { registerTomlLanguage } from '@/lib/editor/monaco.ts';
-import { monacoLanguage } from '../lib/formats.ts';
 import type { Format } from '../lib/node.ts';
+import { monacoLanguage } from '../lib/formats.ts';
 
 export default function RawEditor({
   path,

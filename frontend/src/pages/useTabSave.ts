@@ -2,8 +2,8 @@ import { basename } from 'pathe';
 import { useState } from 'react';
 import { getHttpStatus, httpErrorToHuman } from '@/api/axios.ts';
 import { useToast } from '@/providers/ToastProvider.tsx';
-import { getConfigFile, saveDocument, saveRawContent } from '../api.ts';
 import type { ConfigFile, EditorTab } from '../lib/tabs.ts';
+import { getConfigFile, saveDocument, saveRawContent } from '../api.ts';
 import { useExtTranslations } from '../translations.ts';
 
 // saves tabs through the visual or raw endpoint; a 409 parks the tab path in `conflict` for the user to resolve
