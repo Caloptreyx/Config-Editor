@@ -5,7 +5,7 @@ forms. Open a file from the server's **Config Editor** page, change values in fi
 type, and save. Only the values you changed are rewritten on disk; comments, blank lines, quoting and
 indentation everywhere else stay exactly as they were.
 
-Package name: `dev.caloptreyx.configeditor` · Requires panel `>=1.2.3`
+Package name: `dev.caloptreyx.configeditor` · Requires panel `>=1.2.10`
 
 ![Config Editor showing paper-global.yml as a form](docs/screenshots/form-editor.png)
 
@@ -108,7 +108,8 @@ The extension uses the panel's file permissions; it adds none of its own.
 |---|---|
 | Open the page, browse folders, manage favorites | `files.read` |
 | Open a file | `files.read-content` |
-| Save, review changes, raw saves, create files and folders in VS Code | `files.create` (the panel's file write permission) |
+| Save, review changes, raw saves | `files.create` (the panel's file write permission) and `files.read-content` (a save returns the file) |
+| Create files and folders in VS Code | `files.create` |
 | Rename or move in VS Code | `files.update` |
 | Delete in VS Code | `files.delete` |
 
