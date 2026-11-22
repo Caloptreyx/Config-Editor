@@ -2,7 +2,7 @@
 name = "dev_caloptreyx_configeditor"
 description = "Edit YAML, JSON, TOML, properties, .env and INI server configs through generated forms that keep comments and layout intact."
 authors = ["Caloptreyx"]
-version = "0.1.0"
+version = "0.1.1"
 edition = { workspace = true }
 
 [dependencies]
